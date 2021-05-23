@@ -96,6 +96,17 @@ test('adds validation error on domain mismatch', () => {
   }).toThrow(/DNS zone hello.com is not authoritative for certificate domain name example.com/);
 });
 
+test('does not try to validate undefined hostedZoneName', () => {
+  const stack = new Stack();
+
+  new DnsValidatedCertificate(stack, 'Cert', {
+    domainName: 'example.com',
+    hostedZoneId: 'ABCDEFGHIJKLM',
+  });
+
+  SynthUtils.synthesize(stack); // does not throw
+});
+
 test('does not try to validate unresolved tokens', () => {
   const stack = new Stack();
 

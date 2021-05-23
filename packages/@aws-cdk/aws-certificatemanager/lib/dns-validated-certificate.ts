@@ -14,8 +14,15 @@ export interface DnsValidatedCertificateProps extends CertificateProps {
   /**
    * Route 53 Hosted Zone used to perform DNS validation of the request.  The zone
    * must be authoritative for the domain name specified in the Certificate Request.
+   * @default none
    */
-  readonly hostedZone: route53.IHostedZone;
+  readonly hostedZone?: route53.IHostedZone;
+
+  /**
+   * The Route53 Hosted Zone ID of an existing Hosted Zone.
+   * @default none
+   */
+  readonly hostedZoneId?: string;
   /**
    * AWS region that will host the certificate. This is needed especially
    * for certificates used for CloudFront distributions, which require the region
@@ -63,7 +70,7 @@ export class DnsValidatedCertificate extends cdk.Resource implements ICertificat
   */
 
   public readonly tags: cdk.TagManager;
-  private normalizedZoneName: string;
+  private normalizedZoneName?: string;
   private hostedZoneId: string;
   private domainName: string;
 
@@ -71,14 +78,8 @@ export class DnsValidatedCertificate extends cdk.Resource implements ICertificat
     super(scope, id);
 
     this.domainName = props.domainName;
-    this.normalizedZoneName = props.hostedZone.zoneName;
-    // Remove trailing `.` from zone name
-    if (this.normalizedZoneName.endsWith('.')) {
-      this.normalizedZoneName = this.normalizedZoneName.substring(0, this.normalizedZoneName.length - 1);
-    }
-
-    // Remove any `/hostedzone/` prefix from the Hosted Zone ID
-    this.hostedZoneId = props.hostedZone.hostedZoneId.replace(/^\/hostedzone\//, '');
+    this.normalizedZoneName = this.normalizeZoneName(props.hostedZone?.zoneName);
+    this.hostedZoneId = this.normalizeHostedZoneId(props.hostedZone?.hostedZoneId ?? props.hostedZoneId!);
     this.tags = new cdk.TagManager(cdk.TagType.MAP, 'AWS::CertificateManager::Certificate');
 
     const requestorFunction = new lambda.Function(this, 'CertificateRequestorFunction', {
@@ -116,9 +117,31 @@ export class DnsValidatedCertificate extends cdk.Resource implements ICertificat
     this.certificateArn = certificate.getAtt('Arn').toString();
   }
 
+  private normalizeZoneName(zoneName?: string): string | undefined {
+    // Remove trailing `.` from zone name
+    if (!zoneName) {
+      return zoneName;
+    }
+
+    if (zoneName.endsWith('.')) {
+      return zoneName.substring(0, zoneName.length - 1);
+    } else {
+      return zoneName;
+    }
+  }
+
+  private normalizeHostedZoneId(zoneId: string): string {
+    // Remove any `/hostedzone/` prefix from the Hosted Zone ID
+    return zoneId.replace(/^\/hostedzone\//, '');
+  }
+
   protected validate(): string[] {
     const errors: string[] = [];
-    // Ensure the zone name is a parent zone of the certificate domain name
+    if (!this.normalizedZoneName) {
+      return errors;
+    }
+
+    // If provided, ensure the zone name is a parent zone of the certificate domain name
     if (!cdk.Token.isUnresolved(this.normalizedZoneName) &&
       this.domainName !== this.normalizedZoneName &&
       !this.domainName.endsWith('.' + this.normalizedZoneName)) {
